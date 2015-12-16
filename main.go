@@ -1,39 +1,39 @@
 package main
 
 import (
+	"fmt"
 	"github.com/kidoman/embd"
 	_ "github.com/kidoman/embd/host/rpi"
-	"fmt"
-	"time"
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 )
 
 const (
-	NumBytes 				= 13
-	NumNibbles 				= NumBytes * 2
-	NumBits 				= NumBytes * 8
+	NumBytes   = 13
+	NumNibbles = NumBytes * 2
+	NumBits    = NumBytes * 8
 
-	OneClockUs				= 250
-	TwoClockUs  			= 500
+	OneClockUs = 250
+	TwoClockUs = 500
 
-	OneClockMinUs 			= 125
-	OneClockMaxUs			= 375
-	TwoClockMinUs			= 375
-	TwoClockMaxUs			= 625
-	TwentyClockMinUs 		= 4500
-	TwentyClockMaxUs 		= 5500
+	OneClockMinUs    = 125
+	OneClockMaxUs    = 375
+	TwoClockMinUs    = 375
+	TwoClockMaxUs    = 625
+	TwentyClockMinUs = 4500
+	TwentyClockMaxUs = 5500
 
-	IdleState State						= 0
-	PreambleState State					= 1
-	DataState State						= 2
+	IdleState     State = 0
+	PreambleState State = 1
+	DataState     State = 2
 
-	ShortPulseWidth PulseWidth    		= 0
-	OneClockPulseWidth PulseWidth 		= 1
-	TwoClockPulseWidth PulseWidth 		= 2
-	TwentyClockPulseWidth PulseWidth 	= 3
-	LongPulseWidth PulseWidth		    = 4
+	ShortPulseWidth       PulseWidth = 0
+	OneClockPulseWidth    PulseWidth = 1
+	TwoClockPulseWidth    PulseWidth = 2
+	TwentyClockPulseWidth PulseWidth = 3
+	LongPulseWidth        PulseWidth = 4
 )
 
 type State int
@@ -115,7 +115,7 @@ func main() {
 	signal.Notify(c, os.Interrupt)
 	signal.Notify(c, syscall.SIGTERM)
 	go func() {
-		<- c
+		<-c
 		rx.StopWatching()
 		close(quit)
 	}()
@@ -129,7 +129,7 @@ func main() {
 		}
 	}()
 
-	<- quit
+	<-quit
 }
 
 func InterruptHandler(pin embd.DigitalPin) {
@@ -193,7 +193,7 @@ func InterruptHandler(pin embd.DigitalPin) {
 			if WaitCount == 0 {
 				WaitCount++
 			} else {
-				Data[BitCount] = Data[BitCount - 1]
+				Data[BitCount] = Data[BitCount-1]
 				BitCount++
 				WaitCount = 0
 				DataPin.Write(embd.High)
@@ -203,7 +203,7 @@ func InterruptHandler(pin embd.DigitalPin) {
 				LastError = 2
 				CurrentState = IdleState
 			} else {
-				Data[BitCount] = Data[BitCount - 1] ^ 1
+				Data[BitCount] = Data[BitCount-1] ^ 1
 				BitCount++
 				DataPin.Write(embd.High)
 			}
@@ -230,13 +230,13 @@ func TestPin(pin embd.DigitalPin) {
 	pin.Write(embd.Low)
 }
 
-func NibbleToHex(in []int) ([]int) {
+func NibbleToHex(in []int) []int {
 	out := make([]int, NumNibbles)
 	for i := 0; i < NumNibbles; i++ {
 		out[i] = 0
 		for j := 0; j < 4; j++ {
 			out[i] <<= 1
-			temp := in[(i * 4) + j]
+			temp := in[(i*4)+j]
 			out[i] = out[i] | temp
 		}
 	}
@@ -244,7 +244,7 @@ func NibbleToHex(in []int) ([]int) {
 	return out
 }
 
-func GetProbeTemp(probeId int, data []int) (int) {
+func GetProbeTemp(probeId int, data []int) int {
 	offset := 8
 	if probeId == 2 {
 		offset = 13
@@ -253,7 +253,7 @@ func GetProbeTemp(probeId int, data []int) (int) {
 	temp := make([]int, 5)
 
 	for i := 0; i < 5; i++ {
-		switch data[i + offset] {
+		switch data[i+offset] {
 		case 5:
 			temp[i] = 0
 			break
