@@ -55,7 +55,6 @@ var Data []int = make([]int, NumBits)
 
 var DataPin embd.DigitalPin
 var SyncPin embd.DigitalPin
-var ErrorPin embd.DigitalPin
 
 var Completed chan []int = make(chan []int)
 
@@ -65,19 +64,15 @@ func main() {
 
 	fmt.Println("Initializing pins.")
 
-	DataPin, err := embd.NewDigitalPin(12)
+	var err error
+
+	DataPin, err = embd.NewDigitalPin(12)
 	if err != nil {
 		fmt.Println("Could not initialize data pin.")
 		return
 	}
 
-	ErrorPin, err := embd.NewDigitalPin(20)
-	if err != nil {
-		fmt.Println("Could not initialize error pin.")
-		return
-	}
-
-	SyncPin, err := embd.NewDigitalPin(16)
+	SyncPin, err = embd.NewDigitalPin(16)
 	if err != nil {
 		fmt.Println("Could not initialize sync pin.")
 		return
@@ -96,11 +91,6 @@ func main() {
 		return
 	}
 
-	if err = ErrorPin.SetDirection(embd.Out); err != nil {
-		fmt.Printf("Could not set direction on error pin. The error was: %v\n", err)
-		return
-	}
-
 	if err = SyncPin.SetDirection(embd.Out); err != nil {
 		fmt.Printf("Could not set direction on sync pin. The error was: %v\n", err)
 		return
@@ -112,7 +102,6 @@ func main() {
 	}
 
 	TestPin(DataPin)
-	TestPin(ErrorPin)
 	TestPin(SyncPin)
 
 	fmt.Println("Setting watch on rx pin.")
@@ -134,6 +123,7 @@ func main() {
 	go func() {
 		for m := range Completed {
 			hex := NibbleToHex(m)
+			fmt.Printf("Timestamp: %v\n", time.Now())
 			fmt.Printf("Temp (Probe 1): %v\n", GetProbeTemp(1, hex))
 			fmt.Printf("Temp (Probe 2): %v\n", GetProbeTemp(2, hex))
 		}
@@ -176,6 +166,8 @@ func InterruptHandler(pin embd.DigitalPin) {
 			WaitCount = 0
 			LastError = 0
 			CurrentState = PreambleState
+			SyncPin.Write(embd.Low)
+			DataPin.Write(embd.Low)
 		}
 		break
 	case PreambleState:
@@ -186,6 +178,7 @@ func InterruptHandler(pin embd.DigitalPin) {
 			BitCount++
 			Data[BitCount] = edge
 			CurrentState = DataState
+			SyncPin.Write(embd.High)
 		} else if CurrentPulse.Width == OneClockPulseWidth && CurrentPulse.Edge == 1 {
 			// do nothing
 		} else if CurrentPulse.Width == TwentyClockPulseWidth && CurrentPulse.Edge == 0 {
@@ -203,6 +196,7 @@ func InterruptHandler(pin embd.DigitalPin) {
 				Data[BitCount] = Data[BitCount - 1]
 				BitCount++
 				WaitCount = 0
+				DataPin.Write(embd.High)
 			}
 		} else if CurrentPulse.Width == TwoClockPulseWidth {
 			if WaitCount == 1 {
@@ -211,6 +205,7 @@ func InterruptHandler(pin embd.DigitalPin) {
 			} else {
 				Data[BitCount] = Data[BitCount - 1] ^ 1
 				BitCount++
+				DataPin.Write(embd.High)
 			}
 		} else {
 			LastError = 3
