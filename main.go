@@ -47,7 +47,6 @@ type Pulse struct {
 var CurrentState State = IdleState
 var BitCount int = 0
 var WaitCount int = 0
-var LastError int = 0
 
 var StartTime time.Time = time.Now()
 var CurrentPulse Pulse
@@ -55,6 +54,7 @@ var Data []int = make([]int, NumBits)
 
 var DataPin embd.DigitalPin
 var SyncPin embd.DigitalPin
+var ErrorPin embd.DigitalPin
 
 var Completed chan []int = make(chan []int)
 
@@ -78,6 +78,12 @@ func main() {
 		return
 	}
 
+	ErrorPin, err = embd.NewDigitalPin(20)
+	if err != nil {
+		fmt.Println("Could not initialize error pin.")
+		return
+	}
+
 	rx, err := embd.NewDigitalPin(21)
 	if err != nil {
 		fmt.Println("Could not initialize rx pin.")
@@ -96,13 +102,19 @@ func main() {
 		return
 	}
 
+	if err = ErrorPin.SetDirection(embd.Out); err != nil {
+		fmt.Printf("Could not set direction on error pin. The error was: %v\n", err)
+		return
+	}
+
 	if err = rx.SetDirection(embd.In); err != nil {
 		fmt.Printf("Could not set direction on rx pin. The error was: %v\n", err)
 		return
 	}
 
-	TestPin(DataPin)
-	TestPin(SyncPin)
+	FlashLed(DataPin)
+	FlashLed(SyncPin)
+	FlashLed(ErrorPin)
 
 	fmt.Println("Setting watch on rx pin.")
 	if err = rx.Watch(embd.EdgeBoth, InterruptHandler); err != nil {
@@ -126,6 +138,7 @@ func main() {
 			fmt.Printf("Timestamp: %v\n", time.Now())
 			fmt.Printf("Temp (Probe 1): %v\n", GetProbeTemp(1, hex))
 			fmt.Printf("Temp (Probe 2): %v\n", GetProbeTemp(2, hex))
+			fmt.Printf("Data: %v\n", hex)
 		}
 	}()
 
@@ -133,6 +146,8 @@ func main() {
 }
 
 func InterruptHandler(pin embd.DigitalPin) {
+	SyncPin.Write(embd.High)
+	DataPin.Write(embd.Low)
 	currentTime := time.Now()
 	pulseTime := currentTime.Sub(StartTime).Nanoseconds() / 1000
 
@@ -153,7 +168,7 @@ func InterruptHandler(pin embd.DigitalPin) {
 		CurrentPulse.Width = OneClockPulseWidth
 	} else if pulseTime <= TwoClockMaxUs {
 		CurrentPulse.Width = TwoClockPulseWidth
-	} else if pulseTime > TwentyClockMinUs && pulseTime <= TwentyClockMaxUs {
+	} else if pulseTime >= TwentyClockMinUs && pulseTime <= TwentyClockMaxUs {
 		CurrentPulse.Width = TwentyClockPulseWidth
 	} else {
 		CurrentPulse.Width = LongPulseWidth
@@ -164,10 +179,7 @@ func InterruptHandler(pin embd.DigitalPin) {
 		if CurrentPulse.Width == TwentyClockPulseWidth && CurrentPulse.Edge == 0 {
 			BitCount = 0
 			WaitCount = 0
-			LastError = 0
 			CurrentState = PreambleState
-			SyncPin.Write(embd.Low)
-			DataPin.Write(embd.Low)
 		}
 		break
 	case PreambleState:
@@ -178,17 +190,16 @@ func InterruptHandler(pin embd.DigitalPin) {
 			BitCount++
 			Data[BitCount] = edge
 			CurrentState = DataState
-			SyncPin.Write(embd.High)
 		} else if CurrentPulse.Width == OneClockPulseWidth && CurrentPulse.Edge == 1 {
 			// do nothing
 		} else if CurrentPulse.Width == TwentyClockPulseWidth && CurrentPulse.Edge == 0 {
 			// do nothing
 		} else {
-			LastError = 1
 			CurrentState = IdleState
 		}
 		break
 	case DataState:
+		DataPin.Write(embd.High)
 		if CurrentPulse.Width == OneClockPulseWidth {
 			if WaitCount == 0 {
 				WaitCount++
@@ -196,19 +207,16 @@ func InterruptHandler(pin embd.DigitalPin) {
 				Data[BitCount] = Data[BitCount-1]
 				BitCount++
 				WaitCount = 0
-				DataPin.Write(embd.High)
 			}
 		} else if CurrentPulse.Width == TwoClockPulseWidth {
 			if WaitCount == 1 {
-				LastError = 2
 				CurrentState = IdleState
 			} else {
 				Data[BitCount] = Data[BitCount-1] ^ 1
 				BitCount++
-				DataPin.Write(embd.High)
 			}
 		} else {
-			LastError = 3
+			FlashLed(ErrorPin)
 			CurrentState = IdleState
 		}
 
@@ -220,11 +228,11 @@ func InterruptHandler(pin embd.DigitalPin) {
 		break
 	}
 
-	StartTime = time.Now()
+	StartTime = currentTime
+	SyncPin.Write(embd.Low)
 }
 
-func TestPin(pin embd.DigitalPin) {
-	fmt.Printf("Testing pin %v.\n", pin.N())
+func FlashLed(pin embd.DigitalPin) {
 	pin.Write(embd.High)
 	time.Sleep(1 * time.Second)
 	pin.Write(embd.Low)
