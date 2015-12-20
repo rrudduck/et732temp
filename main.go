@@ -1,7 +1,7 @@
 package main
 
 import (
-	"fmt"
+	"github.com/alexcesaro/log/stdlog"
 	"github.com/kidoman/embd"
 	_ "github.com/kidoman/embd/host/rpi"
 	"os"
@@ -21,7 +21,7 @@ const (
 	OneClockMinUs    = 0
 	OneClockMaxUs    = 375
 	TwoClockMinUs    = 400
-	TwoClockMaxUs    = 750
+	TwoClockMaxUs    = 900
 	TwentyClockMinUs = 4500
 	TwentyClockMaxUs = 5500
 
@@ -58,57 +58,61 @@ var ErrorPin embd.DigitalPin
 
 var Completed chan []int = make(chan []int)
 
+var Logger = stdlog.GetFromFlags()
+
 func main() {
 	embd.InitGPIO()
 	defer embd.CloseGPIO()
 
-	fmt.Println("Initializing pins.")
+	Logger.Info("Starting et732 temp reader.")
+
+	Logger.Debug("Initializing pins.")
 
 	var err error
 
 	DataPin, err = embd.NewDigitalPin(12)
 	if err != nil {
-		fmt.Println("Could not initialize data pin.")
+		Logger.Error("Could not initialize data pin.")
 		return
 	}
 
 	SyncPin, err = embd.NewDigitalPin(16)
 	if err != nil {
-		fmt.Println("Could not initialize sync pin.")
+		Logger.Error("Could not initialize sync pin.")
 		return
 	}
 
 	ErrorPin, err = embd.NewDigitalPin(20)
 	if err != nil {
-		fmt.Println("Could not initialize error pin.")
+		Logger.Error("Could not initialize error pin.")
 		return
 	}
 
 	rx, err := embd.NewDigitalPin(21)
 	if err != nil {
-		fmt.Println("Could not initialize rx pin.")
+		Logger.Error("Could not initialize rx pin.")
 		return
 	}
 
-	fmt.Println("Setting pin directions.")
+	Logger.Debug("Setting pin directions.")
 
 	if err = DataPin.SetDirection(embd.Out); err != nil {
-		fmt.Printf("Could not set direction on data pin. The error was: %v\n", err)
+		Logger.Error("Could not set direction on data pin. The error was: %v\n", err)
 		return
 	}
 
 	if err = SyncPin.SetDirection(embd.Out); err != nil {
-		fmt.Printf("Could not set direction on sync pin. The error was: %v\n", err)
+		Logger.Error("Could not set direction on sync pin. The error was: %v\n", err)
 		return
 	}
 
 	if err = ErrorPin.SetDirection(embd.Out); err != nil {
-		fmt.Printf("Could not set direction on error pin. The error was: %v\n", err)
+		Logger.Error("Could not set direction on error pin. The error was: %v\n", err)
 		return
 	}
 
 	if err = rx.SetDirection(embd.In); err != nil {
-		fmt.Printf("Could not set direction on rx pin. The error was: %v\n", err)
+		Logger.Error("Could not set direction on rx pin. The error was: %v\n", err)
 		return
 	}
 
@@ -116,9 +120,9 @@ func main() {
 	FlashLed(SyncPin)
 	FlashLed(ErrorPin)
 
-	fmt.Println("Setting watch on rx pin.")
+	Logger.Debug("Setting watch on rx pin.")
 	if err = rx.Watch(embd.EdgeBoth, InterruptHandler); err != nil {
-		fmt.Printf("Could not set watch on rx pin. The error was: %v\n", err)
+		Logger.Error("Could not set watch on rx pin. The error was: %v\n", err)
 		return
 	}
 
@@ -135,10 +139,9 @@ func main() {
 	go func() {
 		for m := range Completed {
 			hex := NibbleToHex(m)
-			fmt.Printf("Timestamp: %v\n", time.Now())
-			fmt.Printf("Temp (Probe 1): %v\n", GetProbeTemp(1, hex))
-			fmt.Printf("Temp (Probe 2): %v\n", GetProbeTemp(2, hex))
-			fmt.Printf("Data: %v\n", hex)
+			Logger.Infof("Temp (Probe 1): %v", GetProbeTemp(1, hex))
+			Logger.Infof("Temp (Probe 2): %v", GetProbeTemp(2, hex))
+			Logger.Debugf("Data: %v", hex)
 		}
 	}()
 
@@ -180,6 +183,7 @@ func InterruptHandler(pin embd.DigitalPin) {
 			BitCount = 0
 			WaitCount = 0
 			CurrentState = PreambleState
+			Logger.Debugf("Idle: Transition to Preamble")
 		}
 		break
 	case PreambleState:
@@ -190,14 +194,15 @@ func InterruptHandler(pin embd.DigitalPin) {
 			BitCount++
 			Data[BitCount] = edge
 			CurrentState = DataState
+			Logger.Debug("Preamble: Transition to Data")
 		} else if CurrentPulse.Width == OneClockPulseWidth && CurrentPulse.Edge == 1 {
-			// do nothing
+			Logger.Debug("Preamble: OneClockPulse, Edge = 1")
 		} else if CurrentPulse.Width == TwentyClockPulseWidth && CurrentPulse.Edge == 0 {
-			// do nothing
+			Logger.Debug("Preamble: TwentyClockPulse, Edge = 0")
 		} else {
 			CurrentState = IdleState
-			fmt.Println("Error in preamble.")
-			fmt.Printf("State: Pulse = %v, Width = %v, Edge = %v, WaitCount = %v, BitCount = %v\n", pulseTime, CurrentPulse.Width, CurrentPulse.Edge, WaitCount, BitCount )
+			Logger.Debug("Preamble: Transition to Idle")
+			Logger.Debugf("Preamble: Pulse = %v, Width = %v, Edge = %v, WaitCount = %v, BitCount = %v\n", pulseTime, CurrentPulse.Width, CurrentPulse.Edge, WaitCount, BitCount )
 		}
 		break
 	case DataState:
@@ -205,26 +210,31 @@ func InterruptHandler(pin embd.DigitalPin) {
 		if CurrentPulse.Width == OneClockPulseWidth {
 			if WaitCount == 0 {
 				WaitCount++
+				Logger.Debug("Data: Increment wait counter.")
 			} else {
 				Data[BitCount] = Data[BitCount-1]
 				BitCount++
 				WaitCount = 0
+				Logger.Debug("Data: Adding bit and continuing.")
 			}
 		} else if CurrentPulse.Width == TwoClockPulseWidth {
 			if WaitCount == 1 {
 				CurrentState = IdleState
+				Logger.Debug("Data: TwoClockPulse, Wait counter already 1.")
+				Logger.Debug("Data: Transition to Idle")
 			} else {
 				Data[BitCount] = Data[BitCount-1] ^ 1
 				BitCount++
+				Logger.Debug("Data: Setting bit and incrementing bit count.")
 			}
 		} else {
-			FlashLed(ErrorPin)
 			CurrentState = IdleState
-			fmt.Println("Error in data.")
-			fmt.Printf("State: Pulse = %v, Width = %v, Edge = %v, WaitCount = %v, BitCount = %v\n", pulseTime, CurrentPulse.Width, CurrentPulse.Edge, WaitCount, BitCount )
+			Logger.Debug("Data: Transition to idle.")
+			Logger.Debugf("Data: Pulse = %v, Width = %v, Edge = %v, WaitCount = %v, BitCount = %v\n", pulseTime, CurrentPulse.Width, CurrentPulse.Edge, WaitCount, BitCount )
 		}
 
 		if BitCount >= NumBits {
+			Logger.Debug("Data: Calling completed.")
 			Completed <- Data
 			Data = make([]int, NumBits)
 			CurrentState = IdleState
