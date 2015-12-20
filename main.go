@@ -16,12 +16,12 @@ const (
 	NumBits    = NumBytes * 8
 
 	OneClockUs = 250
-	TwoClockUs = 500
+	TwoClockUs = OneClockUs * 2
 
-	OneClockMinUs    = 125
+	OneClockMinUs    = 0
 	OneClockMaxUs    = 375
-	TwoClockMinUs    = 375
-	TwoClockMaxUs    = 625
+	TwoClockMinUs    = 400
+	TwoClockMaxUs    = 750
 	TwentyClockMinUs = 4500
 	TwentyClockMaxUs = 5500
 
@@ -196,6 +196,8 @@ func InterruptHandler(pin embd.DigitalPin) {
 			// do nothing
 		} else {
 			CurrentState = IdleState
+			fmt.Println("Error in preamble.")
+			fmt.Printf("State: Pulse = %v, Width = %v, Edge = %v, WaitCount = %v, BitCount = %v\n", pulseTime, CurrentPulse.Width, CurrentPulse.Edge, WaitCount, BitCount )
 		}
 		break
 	case DataState:
@@ -218,6 +220,8 @@ func InterruptHandler(pin embd.DigitalPin) {
 		} else {
 			FlashLed(ErrorPin)
 			CurrentState = IdleState
+			fmt.Println("Error in data.")
+			fmt.Printf("State: Pulse = %v, Width = %v, Edge = %v, WaitCount = %v, BitCount = %v\n", pulseTime, CurrentPulse.Width, CurrentPulse.Edge, WaitCount, BitCount )
 		}
 
 		if BitCount >= NumBits {
